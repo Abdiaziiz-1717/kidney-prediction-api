@@ -32,7 +32,7 @@ class PredictionRequest(BaseModel):
 
 # Define response model
 class PredictionResponse(BaseModel):
-    class: str
+    prediction_class: str
     confidence: float
     description: Optional[str] = None
 
@@ -104,7 +104,7 @@ async def predict(request: PredictionRequest):
                 model = models[model_name]
                 predicted_class, confidence = make_prediction(model, image_tensor)
                 predictions.append({
-                    'class': predicted_class,
+                    'prediction_class': predicted_class,
                     'confidence': confidence
                 })
         
@@ -115,9 +115,9 @@ async def predict(request: PredictionRequest):
         best_prediction = max(predictions, key=lambda x: x['confidence'])
         
         return PredictionResponse(
-            class=best_prediction['class'],
+            prediction_class=best_prediction['prediction_class'],
             confidence=best_prediction['confidence'],
-            description=f"The analysis indicates the presence of {best_prediction['class'].lower()}."
+            description=f"The analysis indicates the presence of {best_prediction['prediction_class'].lower()}."
         )
         
     except Exception as e:

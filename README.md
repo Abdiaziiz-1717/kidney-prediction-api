@@ -26,7 +26,7 @@ Request body:
 Response:
 ```json
 {
-    "class": "NORMAL|STONE|TUMOR",
+    "prediction_class": "NORMAL|STONE|TUMOR",
     "confidence": 95.5,
     "description": "The analysis indicates the presence of normal."
 }
