@@ -36,6 +36,35 @@ class PredictionResponse(BaseModel):
     confidence: float
     description: Optional[str] = None
 
+# Define the model architecture
+class KidneyModel(nn.Module):
+    def __init__(self, num_classes=3):
+        super(KidneyModel, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+        self.classifier = nn.Sequential(
+            nn.Dropout(),
+            nn.Linear(256 * 28 * 28, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
 # Model paths
 MODEL_PATHS = {
     'model1': 'models/best_kidney_model(95_accuracy).pth',
@@ -46,7 +75,11 @@ MODEL_PATHS = {
 models = {}
 for model_name, model_path in MODEL_PATHS.items():
     if os.path.exists(model_path):
-        model = torch.load(model_path, map_location='cpu')
+        # Create model instance
+        model = KidneyModel()
+        # Load state dict
+        state_dict = torch.load(model_path, map_location='cpu')
+        model.load_state_dict(state_dict)
         model.eval()
         models[model_name] = model
 
