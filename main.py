@@ -13,6 +13,7 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import os
 from typing import List, Optional
+import gc
 
 app = FastAPI()
 
@@ -71,10 +72,19 @@ MODEL_PATHS = {
     'model2': 'models/best_kidney_model(92_accuracy).pth'
 }
 
-# Initialize models
+# Initialize models dictionary (will be populated on first use)
 models = {}
-for model_name, model_path in MODEL_PATHS.items():
-    if os.path.exists(model_path):
+
+def load_model(model_name: str) -> nn.Module:
+    """Load a model if it's not already loaded"""
+    if model_name not in models:
+        if model_name not in MODEL_PATHS:
+            raise ValueError(f"Unknown model: {model_name}")
+        
+        model_path = MODEL_PATHS[model_name]
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        
         # Create model instance
         model = KidneyModel()
         # Load state dict
@@ -82,6 +92,8 @@ for model_name, model_path in MODEL_PATHS.items():
         model.load_state_dict(state_dict)
         model.eval()
         models[model_name] = model
+    
+    return models[model_name]
 
 def preprocess_image(image_data: str) -> torch.Tensor:
     """Preprocess the image for model input"""
@@ -133,19 +145,26 @@ async def predict(request: PredictionRequest):
         # Get predictions from all requested models
         predictions = []
         for model_name in request.models:
-            if model_name in models:
-                model = models[model_name]
+            try:
+                model = load_model(model_name)
                 predicted_class, confidence = make_prediction(model, image_tensor)
                 predictions.append({
                     'prediction_class': predicted_class,
                     'confidence': confidence
                 })
+            except Exception as e:
+                print(f"Error with model {model_name}: {str(e)}")
+                continue
         
         if not predictions:
             raise HTTPException(status_code=400, detail="No valid models specified")
         
         # Select prediction with highest confidence
         best_prediction = max(predictions, key=lambda x: x['confidence'])
+        
+        # Clear memory
+        gc.collect()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
         
         return PredictionResponse(
             prediction_class=best_prediction['prediction_class'],
