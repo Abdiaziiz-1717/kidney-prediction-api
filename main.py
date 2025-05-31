@@ -12,10 +12,14 @@ import cv2
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict
 import gc
 
-app = FastAPI()
+app = FastAPI(
+    title="Kidney Disease Prediction API",
+    description="API for predicting kidney conditions from medical images",
+    version="1.0.0"
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -31,10 +35,15 @@ class PredictionRequest(BaseModel):
     image: str  # base64 encoded image
     models: List[str]  # list of model names to use
 
-# Define response model
-class PredictionResponse(BaseModel):
+# Define model prediction result
+class ModelPrediction(BaseModel):
     prediction_class: str
     confidence: float
+
+# Define response model
+class PredictionResponse(BaseModel):
+    best_prediction: ModelPrediction
+    all_predictions: Dict[str, ModelPrediction]
     description: Optional[str] = None
 
 # Define the model architecture
@@ -136,6 +145,43 @@ def make_prediction(model: nn.Module, image_tensor: torch.Tensor) -> tuple:
     
     return predicted_label, confidence
 
+@app.get("/")
+async def root():
+    """Root endpoint providing API information"""
+    return {
+        "name": "Kidney Disease Prediction API",
+        "version": "1.0.0",
+        "description": "API for predicting kidney conditions from medical images",
+        "endpoints": {
+            "/predict": {
+                "method": "POST",
+                "description": "Predict kidney condition from an image",
+                "input": {
+                    "image": "base64 encoded image string",
+                    "models": ["model1", "model2"]
+                },
+                "output": {
+                    "best_prediction": {
+                        "prediction_class": "NORMAL|STONE|TUMOR",
+                        "confidence": "float between 0 and 100"
+                    },
+                    "all_predictions": {
+                        "model1": {
+                            "prediction_class": "NORMAL|STONE|TUMOR",
+                            "confidence": "float between 0 and 100"
+                        },
+                        "model2": {
+                            "prediction_class": "NORMAL|STONE|TUMOR",
+                            "confidence": "float between 0 and 100"
+                        }
+                    },
+                    "description": "Human-readable description of the prediction"
+                }
+            }
+        },
+        "available_models": list(MODEL_PATHS.keys())
+    }
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
     try:
@@ -143,33 +189,34 @@ async def predict(request: PredictionRequest):
         image_tensor = preprocess_image(request.image)
         
         # Get predictions from all requested models
-        predictions = []
+        all_predictions = {}
         for model_name in request.models:
             try:
                 model = load_model(model_name)
                 predicted_class, confidence = make_prediction(model, image_tensor)
-                predictions.append({
-                    'prediction_class': predicted_class,
-                    'confidence': confidence
-                })
+                all_predictions[model_name] = ModelPrediction(
+                    prediction_class=predicted_class,
+                    confidence=confidence
+                )
             except Exception as e:
                 print(f"Error with model {model_name}: {str(e)}")
                 continue
         
-        if not predictions:
+        if not all_predictions:
             raise HTTPException(status_code=400, detail="No valid models specified")
         
         # Select prediction with highest confidence
-        best_prediction = max(predictions, key=lambda x: x['confidence'])
+        best_model = max(all_predictions.items(), key=lambda x: x[1].confidence)
+        best_prediction = best_model[1]
         
         # Clear memory
         gc.collect()
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
         
         return PredictionResponse(
-            prediction_class=best_prediction['prediction_class'],
-            confidence=best_prediction['confidence'],
-            description=f"The analysis indicates the presence of {best_prediction['prediction_class'].lower()}."
+            best_prediction=best_prediction,
+            all_predictions=all_predictions,
+            description=f"The analysis indicates the presence of {best_prediction.prediction_class.lower()}."
         )
         
     except Exception as e:
